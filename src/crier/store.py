@@ -35,6 +35,14 @@ CREATE TABLE IF NOT EXISTS sections (
     output TEXT NOT NULL,
     updated INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pushed (
+    msg_id INTEGER PRIMARY KEY,
+    ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 COLUMNS = "id, stream, stream_id, topic, sender, sender_email, ts, content"
@@ -90,8 +98,33 @@ class Store:
 
     def prune(self, before_ts: int) -> int:
         cur = self.db.execute("DELETE FROM messages WHERE ts < ?", (before_ts,))
+        self.db.execute("DELETE FROM pushed WHERE ts < ?", (before_ts,))
         self.db.commit()
         return cur.rowcount
+
+    def get_meta(self, key: str) -> str | None:
+        row = self.db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+        self.db.commit()
+
+    def pushed(self, ids: Iterable[int]) -> set[int]:
+        """The subset of these message ids already pushed."""
+        ids = list(ids)
+        if not ids:
+            return set()
+        marks = ",".join("?" * len(ids))
+        rows = self.db.execute(f"SELECT msg_id FROM pushed WHERE msg_id IN ({marks})", ids)
+        return {r[0] for r in rows}
+
+    def mark_pushed(self, ids: Iterable[int]) -> None:
+        now = int(time.time())
+        self.db.executemany(
+            "INSERT OR IGNORE INTO pushed (msg_id, ts) VALUES (?, ?)", [(i, now) for i in ids]
+        )
+        self.db.commit()
 
     def cached(self, key: str, input_hash: str) -> str | None:
         row = self.db.execute(

@@ -30,6 +30,14 @@ def message_url(site: str, m: Message) -> str:
     )
 
 
+def cited_ids(line: str) -> list[int]:
+    """Every message id a line cites, in order."""
+    ids = []
+    for match in CITATION.finditer(line):
+        ids += [int(part.strip().lstrip("m")) for part in re.split(r"[,;]", match.group(1))]
+    return ids
+
+
 def link_citations(text: str, by_id: dict[int, Message], site: str) -> str:
     lines = []
     for line in text.splitlines():

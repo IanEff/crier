@@ -6,7 +6,7 @@
 site = "https://recurse.zulipchat.com"   # the only site crier will talk to
 # Zulip: Settings → Account & privacy → API key → "Download zuliprc"
 zuliprc = "~/.config/crier/zuliprc"
-lookback_hours = 24                      # how far back the first run reaches per channel
+lookback_hours = 24                      # how far back a channel's first fetch reaches (events: events_lookback_hours)
 
 [llm]
 # RC's own model: the gateway droplet relays to the two DGX Sparks at the hub
@@ -56,6 +56,17 @@ interests = [
   "distributed", "kubernetes", "k8s", "golang", "rust", "ddia", "pair",
   "pairing", "talk", "presentation", "lunch", "dinner", "board game",
 ]
+
+[push]
+# Phone pushes via an ntfy server on this Mac, reached over Tailscale.
+# scripts/setup-push.sh sets the server up and prints this section filled in.
+# Leave the whole section out (or enabled = false) for no pushes.
+enabled = false
+server = "http://127.0.0.1:2586"         # crier only ever publishes to localhost
+topic = "crier-CHANGE-ME"                # setup-push.sh generates a random one
+sections = ["hub-now", "coming-up", "for-you"]
+max_per_run = 5                          # more than this folds into one "…and N more"
+# obsidian_vault = "recurse-vault"       # adds a "Digest" button that opens zulip-now.md
 
 [digest]
 timezone = "America/New_York"

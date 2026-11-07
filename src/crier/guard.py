@@ -34,6 +34,16 @@ def check_zulip_url(url: str) -> None:
         raise GuardError(f"refusing Zulip site {url!r}: only https://recurse.zulipchat.com")
 
 
+def check_push_url(url: str) -> None:
+    """Headlines are Zulip-derived, so crier publishes them only to ntfy on this Mac.
+
+    The phone reaches that server over Tailscale; nothing here talks to it directly.
+    """
+    scheme, host = _scheme_host(url)
+    if host not in LOCAL_HOSTS or scheme not in ("http", "https"):
+        raise GuardError(f"refusing push server {url!r}: only an ntfy server on localhost")
+
+
 def check_llm_url(url: str) -> None:
     scheme, host = _scheme_host(url)
     if host in LOCAL_HOSTS and scheme in ("http", "https"):

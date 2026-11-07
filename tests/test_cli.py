@@ -132,3 +132,27 @@ def test_active_hours(setup, capsys):
         '[digest]\n', '[digest]\nactive_hours = [20, 23]\n'))
     assert cli.main(["--config", str(cfg_path), "run"]) == 0
     assert "outside active hours" in capsys.readouterr().out
+
+
+def test_first_fetch_of_events_reaches_back_to_events_window(setup, capsys):
+    from crier.config import load
+
+    cfg_path, *_ = setup
+    cfg = load(cfg_path)
+    assert cli.first_lookback_hours(cfg, "events-board") == 72
+    assert cli.first_lookback_hours(cfg, "EVENTS-board") == 72
+    assert cli.first_lookback_hours(cfg, "hub-happenings") == 24
+
+
+def test_backfill_ignores_cursors_without_duplicating(setup, capsys):
+    import sqlite3
+
+    cfg_path, vault, zulip, _llm = setup
+    cli.main(["--config", str(cfg_path), "run"])
+    reqs = len(zulip.requests)
+    capsys.readouterr()
+    assert cli.main(["--config", str(cfg_path), "run", "--backfill", "72"]) == 0
+    assert "backfilled 72h: 6 new messages from 4 channels" in capsys.readouterr().out
+    assert all(r.url.params["anchor"] == "newest" for r in zulip.requests[reqs:])
+    db = sqlite3.connect(vault / ".crier/crier.sqlite3")
+    assert db.execute("SELECT count(*) FROM messages").fetchone()[0] == 6

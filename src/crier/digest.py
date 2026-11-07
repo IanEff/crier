@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 
@@ -123,6 +123,8 @@ class SectionResult:
     messages: int
     summarized: bool = False  # True if the model ran this time (not cached, not empty)
     error: str | None = None
+    raw: str = ""  # the model's answer before linking, [m123] citations intact
+    by_id: dict[int, Message] = field(default_factory=dict)  # the messages it was shown
 
 
 def is_nothing(text: str) -> bool:
@@ -259,9 +261,10 @@ class Digester:
         if is_nothing(raw):
             body = "_Nothing worth flagging._"
         else:
-            by_id = {m.id: m for m in msgs}
-            body = link_citations(raw, by_id, self.cfg.zulip.site)
-        return SectionResult(spec, body, len(msgs), summarized=summarized)
+            body = link_citations(raw, {m.id: m for m in msgs}, self.cfg.zulip.site)
+        return SectionResult(
+            spec, body, len(msgs), summarized=summarized, raw=raw, by_id={m.id: m for m in msgs}
+        )
 
     # --- the two pages ---
 

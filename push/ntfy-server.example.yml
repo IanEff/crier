@@ -1,0 +1,18 @@
+# ntfy server config for crier pushes. scripts/setup-push.sh writes this to
+# ~/.config/crier/ntfy.yml with MAC.TAILNET filled in.
+#
+# The server listens on localhost only. `tailscale serve` puts it on your
+# tailnet over HTTPS, so the phone reaches it and nothing else can.
+
+base-url: "https://MAC.TAILNET.ts.net"
+listen-http: "127.0.0.1:2586"
+behind-proxy: true
+
+# iOS instant delivery. ntfy.sh gets only the message id and a SHA256 of the
+# topic URL, never the text; the phone then fetches the headline from this
+# server over Tailscale. Without it, iOS delivery can lag by tens of minutes.
+upstream-base-url: "https://ntfy.sh"
+
+# Headlines are Zulip-derived, so the cache lives behind the RC vault wall.
+cache-file: "/Users/ian/projects/rc/recurse-vault/.crier/ntfy-cache.db"
+cache-duration: "24h"

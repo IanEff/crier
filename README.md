@@ -1,132 +1,197 @@
 # crier
 
-A cron job that reads RC's Zulip so I don't have to read all of it. Every 20
-minutes it pulls new messages from the channels I name, has RC's own model
-(GLM on the two DGX Sparks at the hub) or a local one boil them down, and rewrites two
-notes in my RC vault: what's on at the hub right now, and today's digest.
+A town crier for the Recurse Center's Zulip. Every 20 minutes it reads the
+channels you name, has RC's own model boil them down, and keeps two notes in
+your Obsidian vault current: what's on at the hub right now, and the day's
+digest. If you want, it also pushes the good bits to your phone.
 
-Two sections carry the weight: **The wall** (where Zulip text may and may not
-go) and **Setup**. The rest is reference.
+It exists because Zulip at RC is a firehose and the fun stuff (an impromptu
+talk, dumplings on the 4th floor, someone looking for a Raft pair) scrolls past
+before you see it.
+
+```
+recurse.zulipchat.com ──read──▶ crier (on your Mac, every 20 min)
+                                  │
+                                  ├──summarize──▶ RC's LLM gateway ──▶ two DGX Sparks at the hub
+                                  │
+                                  ├──write──▶ your vault: zulip-now.md, zulip-YYYY-MM-DD.md
+                                  │
+                                  └──push──▶ ntfy on your Mac ──Tailscale──▶ your phone
+```
+
+Two sections carry the weight: **The wall**, because RC forbids sending Zulip
+data to hosted AI and crier is built around that, and **Quick start**.
+
+## What you get
+
+Illustrative, with invented people and messages. `zulip-now.md` looks like this:
+
+```markdown
+# At the hub right now
+
+_Updated Sat 14:30 by crier from 41 messages. Today's digest: [[zulip-2026-11-07]]._
+
+## Right now at the hub
+
+- Settlers of Catan at 6pm on the couches, two seats left [↗](https://recurse.zulipchat.com/#narrow/…)
+- Ada is ordering dumplings for the 4th floor at 12:30; reply to get in [↗](…)
+
+## Coming up
+
+- **Fri 16:00**: talk on substitutability, main space [↗](…)
+```
+
+The day page, `zulip-YYYY-MM-DD.md`, has **For you** (the ten things you'd
+hate to miss, ranked against your interests), **Check-ins** (one line per
+person, with overlaps flagged so you know who to pair with) and **Hub today**.
+Every bullet links to the Zulip message it came from.
 
 ## The wall
 
 The RC manual forbids sending Zulip or Directory data to hosted AI. crier is
-built so that obeying that rule doesn't depend on me remembering it.
+built so that keeping that rule doesn't depend on anyone remembering it.
 
 1. **Zulip text goes to two kinds of place only.** `src/crier/guard.py` allows
-   `https://recurse.zulipchat.com` for reading, and RC's LLM gateway
-   (`llm.rcdis.co`, plus `llm.recurse.com`) or localhost for summarizing.
-   Per the llm.recurse.com FAQ, the gateway is a DigitalOcean droplet that
-   checks the key and relays over Tailscale to the Sparks; it logs usage, not
-   content, and never forwards to a model provider. RC staff could look if
-   they had to, so the text does leave the building, inside RC's own setup. Anything else in the config is refused at
-   load time, and every client checks again before it connects. Redirects are
-   off. Widening the allowlist takes a code change.
-2. **Everything Zulip-derived lives in the RC vault.** The message cache is
-   `.crier/crier.sqlite3` and the pages are `Areas/rc/digest/`, both under
-   `~/projects/rc/recurse-vault`, which hosted assistants on this machine are
-   denied.
-3. **stdout carries counts, paths, my own channel names and error codes.** It
-   never carries message text, so running `crier` in a terminal an assistant
-   can see leaks nothing. `tests/test_cli.py` checks this against the
-   fixtures.
-4. **This repo holds no Recurser data.** Every person and message in `tests/`
-   is invented. Real config, keys and caches are gitignored and live outside
-   it anyway.
+   `recurse.zulipchat.com` for reading, and RC's LLM gateway or a model on
+   localhost for summarizing. Any other host is refused when the config loads
+   and again before every connection. Redirects are off. Adding a host takes
+   a code change.
+2. **The model never writes a link.** It cites message ids like `[m123]`, and
+   `links.py` turns them into Zulip links using only the messages it was
+   shown. A cited id that wasn't in its input is dropped, and a bullet with no
+   real source left ends in `_(no source)_`. Trust the ↗ links over the prose.
+3. **Everything Zulip-derived stays on your machine:** the message cache
+   (`.crier/` in your vault), the pages, and the push server's cache. Pushes
+   go to an ntfy server on your Mac, which only your phone can reach over
+   Tailscale. For instant iOS delivery, ntfy.sh relays a message id and a hash
+   of the topic, never the text.
+4. **The terminal shows counts, paths, your channel names and error codes,
+   never message text.** You can run crier in a terminal an AI assistant can
+   see. `tests/test_cli.py` and `tests/test_push.py` check this.
+5. **This repo holds no Recurser data.** Every person and message in `tests/`
+   and in this README is invented.
 
-## Setup
+## Quick start
+
+You need [uv](https://docs.astral.sh/uv/), an RC Zulip account, and an API
+key from llm.recurse.com.
 
 ```sh
-uv tool install --editable ~/projects/rc/crier
+uv tool install --editable ~/projects/rc/crier      # wherever you cloned it
 mkdir -p ~/.config/crier
-cp ~/projects/rc/crier/config.example.toml ~/.config/crier/config.toml
+cp config.example.toml ~/.config/crier/config.toml
 ```
 
-Then:
+1. **Zulip key.** Zulip → Personal settings → Account & privacy → API key →
+   Download zuliprc, saved to `~/.config/crier/zuliprc` (`chmod 600` it).
+2. **LLM key.** llm.recurse.com → API Keys. Put it in the keychain:
+   `security add-generic-password -a "$USER" -s crier-llm -w` (it prompts, so
+   the key stays out of your shell history).
+3. **Channels.** Fill in `[channels]` in the config. Emoji are part of the
+   name: write them as TOML escapes so copy-paste can't mangle them, e.g.
+   `"\U0001F9D1‍\U0001F4BB current batches"` for 🧑‍💻.
+4. **`crier check`.** It signs in to Zulip, checks each channel exists, and
+   pings the model.
+5. **`crier run --force`** once, then open `Areas/rc/digest/zulip-now.md`.
+6. **Schedule it:**
+   ```sh
+   cp launchd/com.ianeff.crier.plist ~/Library/LaunchAgents/
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ianeff.crier.plist
+   ```
+   The job runs every 20 minutes. crier skips runs outside `active_hours`
+   (8:00–23:00 by default). The plist has my paths in it; change them to
+   yours.
 
-1. **Zulip key.** Zulip → Settings → Account & privacy → API key → download the
-   zuliprc to `~/.config/crier/zuliprc`.
-2. **LLM key.** Make one at llm.recurse.com (API Keys) and put it in the
-   keychain: `security add-generic-password -a "$USER" -s crier-llm -w` (it
-   prompts). The example config already points at the gateway, OpenAI-shaped,
-   with model `default`, RC's alias for whatever it's serving.
-3. **Channels.** Fill in `[channels]`: `hub` for where people say what's on
-   right now, `events` for announcements, `others` for anything worth mining
-   for "For you". `checkins` defaults to `checkins`.
-4. **`crier check`** signs in to Zulip, sends the model one tiny prompt, and
-   reports.
-5. **`crier run --force`** once by hand, then open
-   `Areas/rc/digest/zulip-now.md` in Obsidian.
-6. **Schedule it:** see the comment at the top of
-   `launchd/com.ianeff.crier.plist`.
+From here it's hands-off. Keep `zulip-now.md` open in Obsidian; its
+"Updated" time tells you it's live.
 
-## What it writes
+## Phone pushes
 
-| Page | Sections | Window | Rewritten |
-|---|---|---|---|
-| `zulip-now.md` | Right now at the hub; Coming up | hub: last 3h; events: last 72h | every run |
-| `zulip-YYYY-MM-DD.md` | For you; Check-ins; Hub today | that calendar day | every run, today and yesterday |
+New items from "Right now at the hub", "Coming up" and "For you" arrive as
+notifications. Tapping one opens the Zulip message. An item counts as new
+when it cites a message crier hasn't pushed before, so a reworded summary
+doesn't buzz you twice. The first run after you turn pushes on is silent: it
+marks everything already there as seen, so you don't get a day's backlog. More
+than `max_per_run` (5) new items in one run fold into a single "…and N more".
 
-The day pages aren't named plain `YYYY-MM-DD.md` because the RC vault's daily
-notes already are. Both pages carry `kind: digest` and `status: processed`, so
-the filing clerk in the vault's `AGENTS.md` leaves them alone.
+Setup, once:
+
+1. Sign in to Tailscale on the Mac and on the phone, and turn on HTTPS
+   certificates for your tailnet (admin console → DNS).
+2. `scripts/setup-push.sh`. It installs ntfy with Homebrew if it's missing,
+   writes `~/.config/crier/ntfy.yml`, keeps ntfy running under launchd
+   (`com.ianeff.crier-ntfy`), runs `tailscale serve`, and prints a `[push]`
+   section with a random topic.
+3. Paste that section into your config, then follow the printed phone steps:
+   the ntfy app, your Mac's tailnet address as its server, subscribe to the
+   topic.
+4. `crier push-test`.
+
+The phone has to be on Tailscale for a notification to show its text. Off the
+tailnet, it can't reach the Mac to fetch the headline.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `crier run [--force] [--backfill HOURS]` | fetch, rewrite now + today + yesterday, push. `--force` ignores `active_hours`; `--backfill` re-reads every channel from HOURS ago |
+| `crier fetch [--backfill HOURS]` | fetch only |
+| `crier digest [--day YYYY-MM-DD]` | rewrite pages from the cache, no fetch, no push |
+| `crier check` | config, vault path, Zulip sign-in, every channel, one model ping |
+| `crier push-test` | one test notification |
+
+Exit codes: 0 fine, 1 a channel, section or push failed (the rest still ran),
+2 config or guard error. A lock file stops the scheduled run and a manual one
+from overlapping.
 
 ## How a section gets made
 
 Each section is one instruction plus a slice of the cache. Messages go to the
 model as `[m123] Sat 14:00 Name in #channel > topic: text`, grouped by thread,
 cut to 1,500 characters each, at most 400 per section (keyword hits kept first
-for "For you"), packed into calls of at most 150,000 characters (the context
-is 262,144 tokens). When a section
-needs more than one call, a final call merges the partial answers. Check-ins
+for "For you"), packed into calls of at most 150,000 characters. When a section
+needs more than one call, a last call merges the partial answers. Check-ins
 skip the merge, since each bullet is one person.
 
-The model never writes a URL. It cites `[m123]`, and `links.py` turns each
-citation into a Zulip link built from the messages it was actually shown. A
-cited id that wasn't in the input is dropped, and a bullet with no real
-citation left gets `_(no source)_` appended. That's the hallucination tell:
-trust the ↗ links, not the prose.
-
 A section is cached by a hash of its input, its prompt and the model id, so a
-run with nothing new makes zero model calls. "Right now" is also redone every
-30 minutes and "Coming up" every hour, since what counts as over depends on the
-clock. RC's two DGX Sparks serve the whole batch, and this keeps me off them
-when nothing has changed. When the model fails, that section says so on the
-page, nothing is cached, and the next run tries again. An answer that hits
-`max_output_tokens` (8,192, reasoning included) ends with a line saying it was
-cut off. Requests send `reasoning_effort = "low"`, which keeps GLM's reasoning
-in its own field instead of in the answer.
+run with nothing new makes zero model calls. RC's two Sparks serve the whole
+batch, and this keeps crier off them when nothing has changed. "Right now" is
+also redone every 30 minutes and "Coming up" every hour, because what counts as
+over depends on the clock. A section the model fails says so on the page and
+isn't cached; the next run tries again. An answer cut off at
+`max_output_tokens` (8,192, reasoning included) says so too.
 
-`[me] interests` are plain keywords. A hit marks the message line with ★ and the
-matched words, which the prompt treats as a hint. The `profile` paragraph does
-the actual steering.
+A channel's first fetch reaches back `lookback_hours` (24). Event channels
+reach back `events_lookback_hours` (72), so an announcement from Thursday about
+Saturday still counts.
 
-## Commands
+`[me] profile` is what does the steering. `interests` are plain keywords: a
+hit marks the line with ★, and the prompt treats that as a hint.
 
-| Command | Does |
-|---|---|
-| `crier run [--force]` | fetch, then rewrite now + today + yesterday; skips outside `active_hours` unless forced |
-| `crier fetch` | fetch only |
-| `crier digest [--day YYYY-MM-DD]` | rewrite pages from the cache, no fetch |
-| `crier check` | config, vault path, Zulip sign-in, one model ping |
+## Configuration
 
-Exit codes: 0 fine, 1 some channel or section failed (the rest still ran), 2
-config or guard error. A lock file stops a launchd run and a manual run from
-overlapping.
+Every key, with its default and what it does, is in `config.example.toml`.
+Secrets stay out of the config: the Zulip key lives in the zuliprc, and the
+LLM key comes from `api_key_cmd` (the keychain) or `api_key_env`. To use a
+local model instead, point `base_url` at Ollama (`http://localhost:11434/v1`)
+and drop the key.
 
-## Not built yet
+## Not built
 
-- @-mentions and DMs. They'd go in a third section if the digest turns out to
-  bury them.
-- RC's calendar. "Coming up" only knows what was announced in Zulip.
-- Anything that writes back to Zulip. crier only reads.
-- Tests against the live gateway. `tests/` fakes it with the OpenAI shape the
-  FAQ describes; `crier check` is the live test.
+- @-mentions and DMs.
+- RC's calendar. "Coming up" only knows what was announced in the channels in
+  `events`.
+- Writing to Zulip. crier only reads.
+- The Anthropic request shape (`api = "anthropic"`) against the live gateway.
+  Only the OpenAI shape has been exercised.
 
 ## Development
 
 ```sh
 uv sync
-uv run pytest
+uv run pytest        # Zulip, the model and ntfy are all faked; no network
 uv run ruff check .
 ```
+
+Written with Claude (Anthropic), against invented fixtures only. No Zulip text
+went to it.

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from crier.guard import check_llm_url, check_zulip_url
+from crier.guard import check_llm_url, check_push_url, check_zulip_url
 
 DEFAULT_CONFIG = Path("~/.config/crier/config.toml")
 
@@ -120,6 +120,18 @@ class DigestConfig:
         return ZoneInfo(self.timezone)
 
 
+PUSHABLE = ("hub-now", "coming-up", "for-you")
+
+
+@dataclass(frozen=True)
+class PushConfig:
+    server: str  # ntfy on this Mac, e.g. http://127.0.0.1:2586
+    topic: str
+    sections: tuple[str, ...] = PUSHABLE
+    max_per_run: int = 5
+    obsidian_vault: str | None = None  # vault name, for an "Open digest" button
+
+
 @dataclass(frozen=True)
 class Config:
     zulip: ZulipConfig
@@ -128,6 +140,7 @@ class Config:
     channels: Channels
     me: Me
     digest: DigestConfig
+    push: PushConfig | None = None
 
 
 def load(path: Path | None = None) -> Config:
@@ -236,6 +249,24 @@ def parse(raw: dict) -> Config:
     except (ZoneInfoNotFoundError, ValueError) as e:
         raise ConfigError(f"digest.timezone {digest.timezone!r} is not a known time zone") from e
 
+    push = None
+    p = _section(raw, "push")
+    if p and p.get("enabled", True):
+        sections = tuple(p.get("sections", PUSHABLE))
+        unknown = set(sections) - set(PUSHABLE)
+        if unknown:
+            raise ConfigError(f"push.sections: unknown {sorted(unknown)}; choose from {list(PUSHABLE)}")
+        push = PushConfig(
+            server=_require(p, "push", "server").rstrip("/"),
+            topic=_require(p, "push", "topic"),
+            sections=sections,
+            max_per_run=max(1, int(p.get("max_per_run", 5))),
+            obsidian_vault=p.get("obsidian_vault") or None,
+        )
+        check_push_url(push.server)
+
     check_zulip_url(zulip.site)
     check_llm_url(llm.base_url)
-    return Config(zulip=zulip, llm=llm, output=output, channels=channels, me=me, digest=digest)
+    return Config(
+        zulip=zulip, llm=llm, output=output, channels=channels, me=me, digest=digest, push=push
+    )
