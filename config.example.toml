@@ -1,0 +1,67 @@
+# crier config. Copy to ~/.config/crier/config.toml and fill in.
+# No secrets in here: the Zulip key lives in the zuliprc, the LLM key in an
+# env var or the keychain.
+
+[zulip]
+site = "https://recurse.zulipchat.com"   # the only site crier will talk to
+# Zulip: Settings → Account & privacy → API key → "Download zuliprc"
+zuliprc = "~/.config/crier/zuliprc"
+lookback_hours = 24                      # how far back the first run reaches per channel
+
+[llm]
+# RC's own model: the gateway droplet relays to the two DGX Sparks at the hub
+# (llm.recurse.com/faq). llm.recurse.com itself is the web UI; its API points
+# here. The gateway also has an Anthropic-style endpoint (api = "anthropic").
+api = "openai"
+base_url = "https://llm.rcdis.co/v1"
+model = "default"                        # alias for whatever RC is serving (GLM-5.3-Flash today)
+reasoning_effort = "low"                 # "low" keeps reasoning out of the answer; "" sends none
+# One of these two. The keychain one keeps the key off disk:
+#   security add-generic-password -a "$USER" -s crier-llm -w
+api_key_cmd = "security find-generic-password -s crier-llm -w"
+# api_key_env = "CRIER_LLM_KEY"
+max_input_chars = 150000                 # per model call; the context is 262,144 tokens
+max_output_tokens = 8192                 # reasoning counts against this too
+timeout = 300
+
+# Local fallback instead (Ollama), no key needed:
+# base_url = "http://localhost:11434/v1"
+# model = "qwen3:14b"
+
+[output]
+vault = "~/projects/rc/recurse-vault"
+digest_dir = "Areas/rc/digest"           # zulip-now.md and zulip-YYYY-MM-DD.md go here
+state_dir = ".crier"                     # message cache; dot folder, hidden from Obsidian
+
+[channels]
+# Channel names as they appear in Zulip, without the #. Check spelling there:
+# a wrong name shows up as an error in `crier check` / `crier run`.
+# Emoji are part of the name. Spell joined ones out so copy-paste can't drop
+# the invisible joiner: "\U0001F9D1\u200D\U0001F4BB current batches" is 🧑‍💻.
+checkins = ["checkins"]
+hub = []        # where people say what's on at the hub right now
+events = []     # event announcements
+others = []     # read only for "For you"
+
+[me]
+profile = """
+Ian, a senior infrastructure and distributed-systems engineer at RC. Into
+storage engines and distributed storage (Ceph, logs, LSM trees), consensus and
+replication, Kubernetes, Go, and learning Rust. In the DDIA study group.
+Wants to pair on systems projects, and doesn't want to miss talks, food,
+games or outings at the hub.
+"""
+interests = [
+  "storage", "ceph", "database", "lsm", "raft", "consensus", "replication",
+  "distributed", "kubernetes", "k8s", "golang", "rust", "ddia", "pair",
+  "pairing", "talk", "presentation", "lunch", "dinner", "board game",
+]
+
+[digest]
+timezone = "America/New_York"
+now_window_hours = 3            # "right now at the hub" looks back this far
+events_lookback_hours = 72      # announcements this recent can still be upcoming
+max_messages_per_section = 400  # newest kept; keyword hits kept first for "For you"
+max_message_chars = 1500        # long pastes get cut before they reach the model
+retention_days = 30             # cached messages older than this are deleted
+active_hours = [8, 23]          # `crier run` does nothing outside these (local); remove to always run
