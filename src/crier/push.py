@@ -23,7 +23,7 @@ from crier import USER_AGENT
 from crier.config import Config, PushConfig
 from crier.digest import SectionResult, is_nothing
 from crier.guard import check_push_url
-from crier.links import BULLET, CITATION, cited_ids, message_url
+from crier.links import BULLET, CITATION, cited_ids, defang, message_url
 from crier.store import Store
 
 PRIMED = "push_primed"
@@ -47,7 +47,7 @@ class Headline:
 def clean(line: str) -> str:
     """A bullet as plain text: no marker, citations or markdown emphasis."""
     text = BULLET.sub("", line, count=1)
-    text = CITATION.sub("", text)
+    text = defang(CITATION.sub("", text))
     text = re.sub(r"\*\*|__|`", "", text)
     return " ".join(text.split())
 
@@ -94,6 +94,7 @@ class Pusher:
             timeout=15,
             transport=transport,
             follow_redirects=False,
+            trust_env=False,  # an HTTP_PROXY would get the headlines in plaintext
         )
 
     def close(self) -> None:

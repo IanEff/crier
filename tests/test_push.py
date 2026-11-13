@@ -75,6 +75,8 @@ def test_push_config(tmp_path):
 def test_clean():
     assert clean("- **Fri 4pm**: a talk (main space) [m104]") == "Fri 4pm: a talk (main space)"
     assert clean("  * dumplings at 12:30 [m103, m105] ") == "dumplings at 12:30"
+    assert clean("- lunch ![](https://evil.example/p) [here](https://evil.example) [m103]") == "lunch here"
+    assert clean("- talk https://evil.example/x at 4 [m104]") == "talk (link) at 4"
 
 
 def test_headlines_skip_unsourced_and_checkins(world):

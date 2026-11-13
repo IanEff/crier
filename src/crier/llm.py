@@ -11,7 +11,7 @@ import httpx
 
 from crier import USER_AGENT
 from crier.config import LLMConfig
-from crier.guard import check_llm_url
+from crier.guard import check_llm_url, sends_llm_key
 
 CUT_OFF = "_(Answer cut off at llm.max_output_tokens; raise it in the config.)_"
 
@@ -39,22 +39,25 @@ class LLM:
     ):
         check_llm_url(cfg.base_url)
         self.cfg = cfg
+        # A key left in the config after switching to Ollama stays home.
+        self._key = api_key if api_key and sends_llm_key(cfg.base_url) else None
         headers = {"User-Agent": USER_AGENT}
         if cfg.api == "openai":
             self._path = "/chat/completions"
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            if self._key:
+                headers["Authorization"] = f"Bearer {self._key}"
         else:
             self._path = "/v1/messages"
             headers["anthropic-version"] = "2023-06-01"
-            if api_key:
-                headers["x-api-key"] = api_key
+            if self._key:
+                headers["x-api-key"] = self._key
         self._http = httpx.Client(
             base_url=cfg.base_url,
             headers=headers,
             timeout=cfg.timeout,
             transport=transport,
             follow_redirects=False,
+            trust_env=False,  # an HTTP_PROXY would see localhost traffic in plaintext
         )
         self.calls = 0
 
@@ -91,7 +94,7 @@ class LLM:
         except httpx.HTTPError as e:
             raise LLMError(type(e).__name__) from None
         if r.status_code != 200:
-            raise LLMError(f"HTTP {r.status_code}: {_error_text(r)}")
+            raise LLMError(f"HTTP {r.status_code}: {_error_text(r, self._key)}")
         try:
             data = r.json()
             if c.api == "openai":
@@ -109,12 +112,19 @@ class LLM:
         return text
 
 
-def _error_text(r: httpx.Response) -> str:
-    """The server's own error message, short; never the request we sent."""
+def _error_text(r: httpx.Response, key: str | None) -> str:
+    """The server's own error message, short; never the request we sent.
+
+    Some gateways echo the key back on a 401, and this text lands in the log
+    and the vault page, so the key is cut out before the message is shortened.
+    """
     try:
         err = r.json().get("error", "")
         if isinstance(err, dict):
             err = err.get("message") or err.get("type") or ""
-        return str(err)[:200]
+        err = str(err)
     except (ValueError, AttributeError):
         return ""
+    if key:
+        err = err.replace(key, "[redacted]")
+    return err[:200]

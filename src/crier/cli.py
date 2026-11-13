@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
+import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -19,6 +21,7 @@ from pathlib import Path
 from crier import __version__
 from crier.config import Config, ConfigError, load
 from crier.digest import Digester, SectionResult
+from crier.grab import LinkError, Scrubber, find_links, llm_pass, parse_narrow, people_in, render
 from crier.guard import GuardError
 from crier.llm import LLM, LLMError
 from crier.push import Pusher, PushError
@@ -254,6 +257,90 @@ def cmd_push_test(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _pb(cmd: str, data: bytes | None = None) -> bytes:
+    """pbcopy/pbpaste, told the text is UTF-8 so non-ASCII names survive."""
+    env = {**os.environ, "LC_CTYPE": "UTF-8"}
+    return subprocess.run([cmd], input=data, env=env, capture_output=True, check=True).stdout
+
+
+def cmd_grab(cfg: Config, args: argparse.Namespace) -> int:
+    """Zulip links (from args, stdin, or the clipboard) -> cleaned conversations on the clipboard."""
+    if args.text:
+        source, text = "arguments", " ".join(args.text)
+    elif not sys.stdin.isatty():
+        source, text = "stdin", sys.stdin.read()
+    else:
+        source, text = "clipboard", _pb("pbpaste").decode("utf-8", "replace")
+    links = find_links(text)
+    if not links:
+        say(f"grab: no recurse.zulipchat.com #narrow links in the {source}")
+        return 1
+
+    convos: list[tuple[list[dict], bool]] = []
+    seen: set[int] = set()
+    failed = dupes = 0
+    with zulip_client(cfg) as client:
+        for i, url in enumerate(links, 1):
+            try:
+                msgs, cut = client.narrow_messages(parse_narrow(url), args.max_messages)
+            except (LinkError, ZulipError) as e:
+                say(f"grab: link {i}: {e}; skipped")
+                failed += 1
+                continue
+            if not msgs:
+                say(f"grab: link {i}: no messages you can see; skipped")
+                failed += 1
+                continue
+            ids = {m["id"] for m in msgs}
+            if ids <= seen:
+                dupes += 1
+                continue
+            seen |= ids
+            convos.append((msgs, cut))
+    if not convos:
+        return 1
+
+    # One set of handles across every conversation, so @AdaL means one person throughout.
+    people = people_in(m for msgs, _ in convos for m in msgs)
+    scrub = Scrubber(people.handles())
+    parts = [render(msgs, scrub, cfg.digest.tz, cut) for msgs, cut in convos]
+
+    if args.llm:
+        llm, kept = make_llm(cfg), 0
+        try:
+            for j, part in enumerate(parts):
+                if len(part) > cfg.llm.max_input_chars:
+                    continue
+                try:
+                    better = llm_pass(part, llm.complete)
+                except LLMError as e:
+                    say(f"grab: model pass failed ({e}); kept the code-only version")
+                    break
+                if better is None:
+                    kept += 1
+                else:
+                    parts[j] = better
+        finally:
+            llm.close()
+        if kept:
+            say(f"grab: model rewrote more than names in {kept} conversation(s); kept those code-only")
+
+    out = "\n".join(parts)
+    if args.out:
+        args.out.expanduser().write_text(out)
+        dest = str(args.out)
+    else:
+        _pb("pbcopy", out.encode("utf-8"))
+        dest = "the clipboard"
+    say(
+        f"grab: {len(links)} link(s) -> {len(convos)} conversation(s), {len(seen)} messages, "
+        f"{len(people.names)} people; {len(out):,} chars to {dest}"
+        + (f" ({dupes} duplicate link(s) folded)" if dupes else "")
+        + (f" ({failed} skipped)" if failed else "")
+    )
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="crier", description="Zulip digest for the Recurse Center.")
     p.add_argument("--config", type=Path, help="config file (default ~/.config/crier/config.toml)")
@@ -273,6 +360,17 @@ def main(argv: list[str] | None = None) -> int:
     dg.set_defaults(func=cmd_digest)
     sub.add_parser("check", help="check config, Zulip sign-in and the model").set_defaults(func=cmd_check)
     sub.add_parser("push-test", help="send a test notification").set_defaults(func=cmd_push_test)
+    g = sub.add_parser(
+        "grab",
+        help="Zulip links -> their conversations, names as @Firstname, onto the clipboard",
+        description="Reads links from the arguments, else stdin, else the clipboard.",
+    )
+    g.add_argument("text", nargs="*", help="links, or any text containing them")
+    g.add_argument("--llm", action="store_true",
+                   help="also have RC's model catch names Zulip didn't mark (surnames in prose)")
+    g.add_argument("-o", "--out", type=Path, help="write here instead of the clipboard")
+    g.add_argument("--max-messages", type=int, default=2000, help="per link (default 2000)")
+    g.set_defaults(func=cmd_grab)
     args = p.parse_args(argv)
     try:
         cfg = load(args.config)

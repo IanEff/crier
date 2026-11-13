@@ -86,6 +86,7 @@ class ZulipClient:
             timeout=timeout,
             transport=transport,
             follow_redirects=False,
+            trust_env=False,  # no proxies, netrc or SSL_CERT_FILE from the environment
         )
 
     def close(self) -> None:
@@ -155,6 +156,34 @@ class ZulipClient:
             if data.get("found_newest") or not raw:
                 return out
             anchor = raw[-1]["id"]
+
+    def narrow_messages(self, narrow: list[dict], limit: int) -> tuple[list[dict], bool]:
+        """Raw messages matching `narrow`, oldest first, and whether `limit` cut it short.
+
+        Raw dicts rather than Message, because a DM narrow returns private
+        messages, whose display_recipient is a list of people.
+        """
+        out: list[dict] = []
+        anchor: int | str = "oldest"
+        include = True
+        while len(out) < limit:
+            data = self._get(
+                "/messages",
+                {
+                    "anchor": str(anchor),
+                    "num_before": 0,
+                    "num_after": min(self._page, limit - len(out)),
+                    "include_anchor": include,
+                    "narrow": json.dumps(narrow),
+                    "apply_markdown": False,
+                },
+            )
+            raw = data["messages"]
+            out.extend(raw)
+            if data.get("found_newest") or not raw:
+                return out, False
+            anchor, include = raw[-1]["id"], False
+        return out, True
 
     def messages_since(self, channel: str, since_ts: int) -> list[Message]:
         """Every message in `channel` sent at or after `since_ts`, oldest first."""

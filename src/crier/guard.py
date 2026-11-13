@@ -44,6 +44,12 @@ def check_push_url(url: str) -> None:
         raise GuardError(f"refusing push server {url!r}: only an ntfy server on localhost")
 
 
+def sends_llm_key(url: str) -> bool:
+    """The RC key goes only to RC's own hosts, never to a model on localhost."""
+    scheme, host = _scheme_host(url)
+    return scheme == "https" and host in LLM_HOSTS
+
+
 def check_llm_url(url: str) -> None:
     scheme, host = _scheme_host(url)
     if host in LOCAL_HOSTS and scheme in ("http", "https"):

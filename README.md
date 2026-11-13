@@ -54,12 +54,16 @@ built so that keeping that rule doesn't depend on anyone remembering it.
 1. **Zulip text goes to two kinds of place only.** `src/crier/guard.py` allows
    `recurse.zulipchat.com` for reading, and RC's LLM gateway or a model on
    localhost for summarizing. Any other host is refused when the config loads
-   and again before every connection. Redirects are off. Adding a host takes
-   a code change.
+   and again before every connection. Redirects are off, and proxy settings
+   from the environment are ignored. Adding a host takes a code change. The
+   LLM key goes only to RC's gateway, never to a model on localhost.
 2. **The model never writes a link.** It cites message ids like `[m123]`, and
    `links.py` turns them into Zulip links using only the messages it was
    shown. A cited id that wasn't in its input is dropped, and a bullet with no
-   real source left ends in `_(no source)_`. Trust the ↗ links over the prose.
+   real source left ends in `_(no source)_`. Any image, link, HTML or URL the
+   model writes anyway is stripped, so a message telling the model to embed
+   `![](https://...)` can't make Obsidian send text off the machine. Trust the
+   ↗ links over the prose.
 3. **Everything Zulip-derived stays on your machine:** the message cache
    (`.crier/` in your vault), the pages, and the push server's cache. Pushes
    go to an ntfy server on your Mac, which only your phone can reach over
@@ -139,6 +143,7 @@ tailnet, it can't reach the Mac to fetch the headline.
 | `crier digest [--day YYYY-MM-DD]` | rewrite pages from the cache, no fetch, no push |
 | `crier check` | config, vault path, Zulip sign-in, every channel, one model ping |
 | `crier push-test` | one test notification |
+| `crier grab [LINKS…] [--llm] [-o FILE]` | every Zulip `#narrow` link in the arguments, stdin or (by default) the clipboard → each whole conversation as Markdown, every person written `@Firstname` (`@AdaL` when two share a first name), onto the clipboard. `--llm` has RC's model catch surnames in prose too |
 
 Exit codes: 0 fine, 1 a channel, section or push failed (the rest still ran),
 2 config or guard error. A lock file stops the scheduled run and a manual one

